@@ -8,9 +8,13 @@ on:
 jobs:
   HiN-VPN:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # مجوز نوشتن برای GITHUB_TOKEN
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # کل تاریخچه مخزن را دریافت می‌کند
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -31,9 +35,8 @@ jobs:
           php base.php
           git config --global user.email "yebekhe@gmail.com"
           git config --global user.name "yebekhe"
-          git config credential.helper store
           git add -A
-          git commit -m "🚀 Last Run - $(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')"
-          git push
+          git commit -m "🚀 Last Run - $(TZ='Asia/Tehran' date '+%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git push origin main # فرض بر این است که شاخه اصلی main است
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
