@@ -1,4 +1,4 @@
-name: "V2_Collector"
+name: V2_Collector
 
 on:
   workflow_dispatch:
@@ -10,14 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v2
-      
+        uses: actions/checkout@v4 # به‌روزرسانی به نسخه جدیدتر
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '7.4'
-          
-      - name: Execute PHP script
+
+      - name: Debug Directory Structure
+        run: |
+          pwd
+          ls -la /home/runner/work/V2_Collector/V2_Collector/
+          ls -la .
+          # اگر می‌دانید $directory چیست، مسیر را اینجا چک کنید
+          ls -la your_folder || echo "Directory your_folder not found"
+
+      - name: Execute PHP Script
         run: |
           php base.php
           git config --global user.email "yebekhe@gmail.com"
