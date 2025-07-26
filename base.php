@@ -5,13 +5,38 @@ ini_set("display_errors", 1);
 ini_set("display_startup_errors", 1);
 error_reporting(E_ERROR | E_PARSE);
 
+// تابع برای اطمینان از وجود دایرکتوری
+function ensureDirectoryExists($directory) {
+    if (!file_exists($directory)) {
+        mkdir($directory, 0777, true);
+        echo "Debug: Created directory $directory\n";
+    }
+}
+
 function getTelegramChannelConfigs($username)
 {
+    // ایجاد دایرکتوری‌های موردنیاز
+    $dirs = [
+        "subscription/normal",
+        "subscription/base64",
+        "subscription/hiddify",
+        "subscription/source/normal",
+        "subscription/source/base64",
+        "subscription/source/hiddify"
+    ];
+    foreach ($dirs as $dir) {
+        ensureDirectoryExists($dir);
+    }
+
     $sourceArray = explode(",", $username);
     $mix = "";
     foreach ($sourceArray as $source) {
         echo "@{$source} => PROGRESS: 0%\n";
-        $html = file_get_contents("https://t.me/s/" . $source);
+        $html = @file_get_contents("https://t.me/s/" . $source);
+        if ($html === false) {
+            echo "Error: Failed to fetch data from https://t.me/s/$source\n";
+            continue;
+        }
 
         $types = [
             "vmess",
@@ -133,6 +158,57 @@ function getTelegramChannelConfigs($username)
     }
 }
 
+function removeFileInDirectory($directory, $fileName)
+{
+    if (!file_exists($directory) || !is_dir($directory)) {
+        echo "Warning: Directory $directory does not exist.\n";
+        return false;
+    }
+
+    $filePath = $directory . "/" . $fileName;
+
+    if (!file_exists($filePath)) {
+        return false;
+    }
+
+    if (!unlink($filePath)) {
+        return false;
+    }
+
+    return true;
+}
+
+function listFilesInDirectory($directory)
+{
+    if (!file_exists($directory) || !is_dir($directory)) {
+        echo "Warning: Directory $directory does not exist.\n";
+        return [];
+    }
+
+    $filePaths = [];
+    if ($handle = opendir($directory)) {
+        while (false !== ($entry = readdir($handle))) {
+            if ($entry != "." && $entry != "..") {
+                $fullPath = $directory . "/" . $entry;
+                if (is_dir($fullPath)) {
+                    $filePaths = array_merge(
+                        $filePaths,
+                        listFilesInDirectory($fullPath)
+                    );
+                } else {
+                    $filePaths[] = $fullPath;
+                }
+            }
+        }
+        closedir($handle);
+    } else {
+        echo "Warning: Failed to open directory $directory.\n";
+        return [];
+    }
+    return $filePaths;
+}
+
+// بقیه توابع بدون تغییر
 function configParse($input, $configType)
 {
     if ($configType === "vmess") {
@@ -268,34 +344,6 @@ function addHash($obj)
     return $url;
 }
 
-/*function is_reality($input)
-{
-    $type = detect_type($input);
-    if (stripos($input, "reality") !== false && $type === "vless") {
-        return true;
-    }
-    return false;
-}*/
-
-function removeFileInDirectory($directory, $fileName)
-{
-    if (!is_dir($directory)) {
-        return false;
-    }
-
-    $filePath = $directory . "/" . $fileName;
-
-    if (!file_exists($filePath)) {
-        return false;
-    }
-
-    if (!unlink($filePath)) {
-        return false;
-    }
-
-    return true;
-}
-
 function generateReadmeTable($titles, $data)
 {
     $table = "| " . implode(" | ", $titles) . " |" . PHP_EOL;
@@ -318,36 +366,6 @@ function generateReadmeTable($titles, $data)
     }
 
     return $table;
-}
-
-function listFilesInDirectory($directory)
-{
-    if (!is_dir($directory)) {
-        throw new InvalidArgumentException("Directory does not exist.");
-    }
-
-    $filePaths = [];
-
-    if ($handle = opendir($directory)) {
-        while (false !== ($entry = readdir($handle))) {
-            if ($entry != "." && $entry != "..") {
-                $fullPath = $directory . "/" . $entry;
-                if (is_dir($fullPath)) {
-                    $filePaths = array_merge(
-                        $filePaths,
-                        listFilesInDirectory($fullPath)
-                    );
-                } else {
-                    $filePaths[] = $fullPath;
-                }
-            }
-        }
-        closedir($handle);
-    } else {
-        throw new RuntimeException("Failed to open directory.");
-    }
-
-    return $filePaths;
 }
 
 function getFileNamesInDirectory($filePaths)
@@ -469,16 +487,6 @@ function convertToJson($input)
 
 function ip_info($ip)
 {
-    // Check if the IP is from Cloudflare
-    /*if (is_cloudflare_ip($ip)) {
-        $traceUrl = "http://$ip/cdn-cgi/trace";
-        $traceData = convertToJson(file_get_contents($traceUrl));
-        $country = $traceData['loc'] ?? "CF";
-        return (object) [
-            "country" => $country,
-        ];
-    }*/
-
     if (is_ip($ip) === false) {
         $ip_address_array = dns_get_record($ip, DNS_A);
         if (empty($ip_address_array)) {
@@ -488,7 +496,6 @@ function ip_info($ip)
         $ip = $ip_address_array[$randomKey]["ip"];
     }
 
-    // List of API endpoints
     $endpoints = [
         "https://ipapi.co/{ip}/json/",
         "https://ipwhois.app/json/{ip}",
@@ -496,44 +503,35 @@ function ip_info($ip)
         "https://api.ipbase.com/v1/json/{ip}",
     ];
 
-    // Initialize an empty result object
     $result = (object) [
         "country" => "XX",
     ];
 
-    // Loop through each endpoint
     foreach ($endpoints as $endpoint) {
-        // Construct the full URL
         $url = str_replace("{ip}", $ip, $endpoint);
 
         $options = [
             "http" => [
                 "header" =>
-                    "User-Agent: Mozilla/5.0 (iPad; U; CPU OS 3_2 like Mac OS X; en-us) AppleWebKit/531.21.10 (KHTML, like Gecko) Version/4.0.4 Mobile/7B334b Safari/531.21.102011-10-16 20:23:10\r\n", // i.e. An iPad
+                    "User-Agent: Mozilla/5.0 (iPad; U; CPU OS 3_2 like Mac OS X; en-us) AppleWebKit/531.21.10 (KHTML, like Gecko) Version/4.0.4 Mobile/7B334b Safari/531.21.102011-10-16 20:23:10\r\n",
             ],
         ];
 
         $context = stream_context_create($options);
-        $response = file_get_contents($url, false, $context);
+        $response = @file_get_contents($url, false, $context);
 
         if ($response !== false) {
             $data = json_decode($response);
 
-            // Extract relevant information and update the result object
             if ($endpoint == $endpoints[0]) {
-                // Data from ipapi.co
                 $result->country = $data->country_code ?? "XX";
             } elseif ($endpoint == $endpoints[1]) {
-                // Data from ipwhois.app
                 $result->country = $data->country_code ?? "XX";
             } elseif ($endpoint == $endpoints[2]) {
-                // Data from geoplugin.net
                 $result->country = $data->geoplugin_countryCode ?? "XX";
             } elseif ($endpoint == $endpoints[3]) {
-                // Data from ipbase.com
                 $result->country = $data->country_code ?? "XX";
             }
-            // Break out of the loop since we found a successful endpoint
             break;
         }
     }
@@ -543,7 +541,6 @@ function ip_info($ip)
 
 function is_cloudflare_ip($ip)
 {
-    // Get the Cloudflare IP ranges
     $cloudflare_ranges = file_get_contents(
         "https://raw.githubusercontent.com/ircfspace/cf-ip-ranges/main/export.ipv4"
     );
@@ -678,7 +675,6 @@ function getTLS($config, $type)
     return null;
 }
 
-
 function isEncrypted($config, $type)
 {
     if (
@@ -808,26 +804,13 @@ function gregorianToJalali($gy, $gm, $gd)
 
 function getTehranTime()
 {
-    // Set the timezone to Tehran
     date_default_timezone_set("Asia/Tehran");
-
-    // Get the current date and time in Tehran
     $date = new DateTime();
-
-    // Get the day of the week in English
     $dayOfWeek = $date->format("D");
-
-    // Get the day of the month
     $day = $date->format("d");
-
-    // Get the month and year
     $month = (int) $date->format("m");
     $year = (int) $date->format("Y");
-
-    // Convert Gregorian date to Jalali date
     list($jy, $jm, $jd) = gregorianToJalali($year, $month, $day);
-
-    // Map Persian month names to their short forms
     $monthNames = [
         1 => "FAR",
         2 => "ORD",
@@ -843,11 +826,7 @@ function getTehranTime()
         12 => "ESFAND",
     ];
     $shortMonth = $monthNames[$jm];
-
-    // Get the time in 24-hour format
     $time = $date->format("H:i");
-
-    // Construct the final formatted string
     $formattedString = sprintf(
         "%s-%02d-%s-%04d 🕑 %s",
         $dayOfWeek,
@@ -856,7 +835,6 @@ function getTehranTime()
         $jy,
         $time
     );
-
     return $formattedString;
 }
 
@@ -874,11 +852,9 @@ function generateEndofConfiguration()
 function addStringToBeginning($array, $string)
 {
     $modifiedArray = [];
-
     foreach ($array as $item) {
         $modifiedArray[] = $string . $item;
     }
-
     return $modifiedArray;
 }
 
@@ -887,42 +863,43 @@ function generateReadme($table1, $table2)
     $base = "### V2_Collector: Your Gateway to Secure and Free Internet Access
 
 **HiN VPN** stands out as a pioneering open-source project designed to empower users with secure, unrestricted internet access. Unlike traditional VPN services, HiN VPN leverages the Telegram platform to collect and distribute VPN configurations, offering a unique and community-driven approach to online privacy and security.
-    
+
 #### How It Works
-    
+
 1. **Telegram Integration**: HiN VPN utilizes a Telegram bot to gather VPN configuration files from contributors. This bot acts as a central hub where users can submit their VPN configurations, ensuring a diverse and robust set of options for subscribers.
-    
+
 2. **Subscription Link**: Once the configurations are collected, HiN VPN processes them and provides a subscription link. This link is freely accessible to anyone, allowing them to download the latest VPN configurations directly to their devices.
-    
+
 3. **Open Source**: Being an open-source project, HiN VPN encourages collaboration and transparency. The source code is available for anyone to review, contribute to, or modify, ensuring that the service remains secure and up-to-date with the latest technological advancements.
-    
+
 4. **PHP Backend**: The backend of HiN VPN is developed using PHP, a widely-used server-side scripting language known for its flexibility and ease of use. This choice of technology ensures that the service can be easily maintained and scaled as needed.
-    
+
 #### Benefits
-    
+
 - **Free Access**: HiN VPN is completely free to use, making it an excellent choice for users who are looking for a cost-effective solution to enhance their online privacy.
 - **Community-Driven**: By relying on community contributions, HiN VPN offers a wide range of VPN configurations, ensuring that users have access to a variety of options that suit their specific needs.
 - **Enhanced Security**: The open-source nature of HiN VPN allows for constant scrutiny and improvement, ensuring that the service remains secure and resilient against potential threats.
 - **Easy to Use**: With a simple subscription link, users can quickly and easily set up their VPN connection, making the process accessible to both tech-savvy individuals and newcomers alike.
-    
+
 #### Subscription Links
-    
+
 To get started with HiN VPN, simply follow the subscription links provided below. This link will grant you access to the latest VPN configurations, allowing you to secure your internet connection and browse the web with peace of mind.
-    
+
 " . $table1 . "
-    
+
 Below is a table that shows the generated subscription links from each source, providing users with a variety of options to choose from.
-    
+
 " . $table2 . "
-    
+
 This table provides a quick reference for the different subscription links available through HiN VPN, allowing users to easily select the one that best suits their needs.
-    
+
 **HiN VPN** is more than just a VPN service; it's a movement towards a more secure and open internet. By leveraging the power of community and open-source technology, HiN VPN is paving the way for a future where online privacy is a fundamental right for all.";
 
     return $base;
 }
 
 $source = trim(file_get_contents("source.conf"));
+echo "Debug: Source channels: $source\n";
 getTelegramChannelConfigs($source);
 
 $normals = addStringToBeginning(
@@ -941,10 +918,6 @@ $protocolColumn = getFileNamesInDirectory(
     listFilesInDirectory("subscription/normal")
 );
 
-
-$title1Array = ["Protocol", "Normal", "Base64", "Hiddify"];
-$cells1Array = convertArrays($protocolColumn, $normals, $base64, $hiddify);
-
 $sourceNormals = addStringToBeginning(
     listFilesInDirectory("subscription/source/normal"),
     "https://raw.githubusercontent.com/10ium/HiN-VPN/main/"
@@ -960,6 +933,9 @@ $sourceHiddify = addStringToBeginning(
 $sourcesColumn = getFileNamesInDirectory(
     listFilesInDirectory("subscription/source/normal")
 );
+
+$title1Array = ["Protocol", "Normal", "Base64", "Hiddify"];
+$cells1Array = convertArrays($protocolColumn, $normals, $base64, $hiddify);
 
 $title2Array = ["Source", "Normal", "Base64", "Hiddify"];
 $cells2Array = convertArrays(
