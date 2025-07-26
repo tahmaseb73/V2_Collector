@@ -10,20 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4 # به‌روزرسانی به نسخه جدیدتر
+        uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '7.4'
 
-      - name: Debug Directory Structure
+      - name: Debug Files and Directories
         run: |
           pwd
-          ls -la /home/runner/work/V2_Collector/V2_Collector/
           ls -la .
-          # اگر می‌دانید $directory چیست، مسیر را اینجا چک کنید
-          ls -la your_folder || echo "Directory your_folder not found"
+          cat source.conf || echo "source.conf not found or empty"
+          mkdir -p subscription/normal subscription/base64 subscription/hiddify
+          mkdir -p subscription/source/normal subscription/source/base64 subscription/source/hiddify
+          ls -la subscription/
 
       - name: Execute PHP Script
         run: |
